@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/core";
+import { checkForAppUpdates } from "./libraries/Update";
 import "./App.css";
 
-const BACKEND_URL = "http://localhost:8721";
+const BACKEND_URL = "http://127.0.0.1:8721";
 
 type Game = { id: number; title: string };
 
@@ -60,9 +61,13 @@ function App() {
     };
   }, [loadGames]);
 
+  useEffect(() => {
+    checkForAppUpdates(false);
+  }, []);
+
   return (
     <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+      <h1>Welcome to Tauri + React and in Version 0.3.0</h1>
 
       <div className="row">
         <a href="https://vite.dev" target="_blank">
@@ -97,6 +102,7 @@ function App() {
       <button onClick={() => loadGames(0)} disabled={isFetchingGames}>
         {isFetchingGames ? "Lädt…" : "Request erneut senden"}
       </button>
+      <button onClick={() => checkForAppUpdates(true)}>Check for Update</button>
       {requestDurationMs !== null && (
         <p style={{ fontSize: "0.85em", opacity: 0.7 }}>
           Request-Dauer: {requestDurationMs.toFixed(1)} ms
