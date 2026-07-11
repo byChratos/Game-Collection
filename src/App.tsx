@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { checkForAppUpdates } from "./libraries/Update";
 import "./App.css";
 
-const BACKEND_URL = "http://localhost:8721";
+const BACKEND_URL = "http://127.0.0.1:8721";
 
 type Game = { id: number; title: string };
 
