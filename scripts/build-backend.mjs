@@ -41,10 +41,22 @@ const JLINK_MODULES = [
 ].join(",");
 
 function run(command, args) {
-  const result = spawnSync(command, args, {
+  // shell: true is only needed on Windows so that gradlew.bat (not directly
+  // executable) can run. On POSIX, spawnSync invokes the executable directly
+  // (no shell involved), so args with spaces (e.g. "Game Collection Backend")
+  // are passed through untouched.
+  //
+  // When shell is enabled, Node just does `[command].concat(args).join(' ')`
+  // without quoting individual args, on both Windows and POSIX. So on Windows
+  // we have to quote any arg containing whitespace ourselves, or it gets
+  // word-split (e.g. jpackage's --name "Game Collection Backend").
+  const shellSafeArgs = isWindows
+    ? args.map((arg) => (/\s/.test(arg) ? `"${arg}"` : arg))
+    : args;
+  const result = spawnSync(command, shellSafeArgs, {
     cwd: backendDir,
     stdio: "inherit",
-    shell: true,
+    shell: isWindows,
   });
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
