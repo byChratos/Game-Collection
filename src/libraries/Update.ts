@@ -25,8 +25,11 @@ export async function checkForAppUpdates(onUserClick: boolean) {
     },
   );
   if (yes) {
+    // Stop the backend sidecar first: Windows won't let the installer
+    // overwrite backend-runtime files while that process still has its own
+    // executable open.
+    await invoke("stop_backend");
     await update.downloadAndInstall();
-    // Shut down the backend sidecar gracefully before restarting the app.
     await invoke("graceful_restart");
   }
 }
