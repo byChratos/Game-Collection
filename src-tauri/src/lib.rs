@@ -17,33 +17,56 @@ fn greet(name: &str) -> String {
 // up as the process name in Task Manager and in Windows Firewall prompts.
 const BACKEND_APP_NAME: &str = "Game Collection Backend";
 
-#[cfg(windows)]
-fn backend_launcher_name() -> String {
-    format!("{BACKEND_APP_NAME}.exe")
+// `jpackage --type app-image` lays the app-image out differently per OS, so both
+// the top-level folder name and the launcher's path inside it are platform-specific:
+//   Windows: <name>/<name>.exe                (app/, runtime/ are siblings)
+//   Linux:   <name>/bin/<name>                (app/, runtime/ live under <name>/lib/)
+//   macOS:   <name>.app/Contents/MacOS/<name> (app/, runtime/ live under Contents/)
+// The launcher only needs its path — jpackage bakes in the right relative lookup
+// for its app/runtime dirs — but the *whole* bundle dir must be shipped intact
+// (see tauri.windows.conf.json / tauri.linux.conf.json / tauri.macos.conf.json).
+
+#[cfg(target_os = "macos")]
+fn backend_bundle_dir_name() -> String {
+    format!("{BACKEND_APP_NAME}.app")
 }
-#[cfg(not(windows))]
-fn backend_launcher_name() -> String {
+#[cfg(not(target_os = "macos"))]
+fn backend_bundle_dir_name() -> String {
     BACKEND_APP_NAME.to_string()
+}
+
+#[cfg(windows)]
+fn backend_launcher_relative_path() -> PathBuf {
+    PathBuf::from(format!("{BACKEND_APP_NAME}.exe"))
+}
+#[cfg(target_os = "macos")]
+fn backend_launcher_relative_path() -> PathBuf {
+    PathBuf::from("Contents").join("MacOS").join(BACKEND_APP_NAME)
+}
+#[cfg(all(unix, not(target_os = "macos")))]
+fn backend_launcher_relative_path() -> PathBuf {
+    PathBuf::from("bin").join(BACKEND_APP_NAME)
 }
 
 /// Path to the jpackage-produced native launcher, which bundles its own JRE
 /// so end users don't need Java installed. See `scripts/build-backend.mjs`.
 fn backend_launcher_path(app: &tauri::AppHandle) -> PathBuf {
-    let launcher_name = backend_launcher_name();
+    let bundle_dir_name = backend_bundle_dir_name();
+    let launcher_relative_path = backend_launcher_relative_path();
     if cfg!(debug_assertions) {
         // In dev, use the app-image produced by `npm run predev` (jpackage) directly.
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../backend/build/jpackage")
-            .join(BACKEND_APP_NAME)
-            .join(&launcher_name)
+            .join(&bundle_dir_name)
+            .join(&launcher_relative_path)
     } else {
         // In a bundled app, the whole app-image folder is shipped as a resource
-        // (see tauri.conf.json -> bundle.resources) so the launcher can find its
-        // "app" and "runtime" sibling directories at runtime.
+        // (see tauri.<platform>.conf.json -> bundle.resources) so the launcher can
+        // find its sibling app/runtime directories at runtime.
         use tauri::path::BaseDirectory;
         app.path()
             .resolve(
-                format!("backend-runtime/{launcher_name}"),
+                PathBuf::from("backend-runtime").join(&launcher_relative_path),
                 BaseDirectory::Resource,
             )
             .expect("failed to resolve bundled backend launcher")
