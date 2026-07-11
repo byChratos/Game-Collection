@@ -1,0 +1,97 @@
+name: 'Build Release'
+
+on:
+  push:
+    branches:
+      - 'release/*'
+
+jobs:
+  publish-tauri:
+    permissions:
+      contents: write
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest' # Arm Macs
+            arch: arm
+            args: '--target aarch64-apple-darwin'
+            java-arch: aarch64
+          - platform: 'macos-latest' # Intel Macs
+            arch: x86_64
+            args: '--target x86_64-apple-darwin'
+            java-arch: x64
+          - platform: 'ubuntu-22.04'
+            arch: x86_64
+            args: ''
+            java-arch: x64
+          - platform: 'windows-latest'
+            arch: x86_64
+            args: ''
+            java-arch: x64
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: extract version from branch name
+        id: version
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#release/}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: install dependencies (ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'npm'
+
+      - name: install Rosetta (needed to run the x64 JDK on the arm64 macOS runner)
+        if: matrix.platform == 'macos-latest' && matrix.java-arch == 'x64'
+        run: softwareupdate --install-rosetta --agree-to-license
+
+      - name: setup JDK (for backend jpackage/jlink build)
+        # jlink/jpackage bundle a JRE matching the architecture of *this* JDK, not
+        # Rust's --target, so the JDK arch must be picked per matrix entry to match
+        # the app being built (e.g. x64 JDK for the "Intel Macs" job on the arm64 runner).
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          architecture: ${{ matrix.java-arch }}
+          cache: gradle
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: install frontend dependencies
+        run: npm install
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: game-collection-v${{ steps.version.outputs.version }}
+          releaseName: 'Game Collection v${{ steps.version.outputs.version }}'
+          releaseBody: 'See the assets to download this version and install.'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
