@@ -37,6 +37,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: make gradlew executable (non-Windows)
+        if: matrix.platform != 'windows-latest'
+        run: chmod +x backend/gradlew
+
       - name: extract version from branch name
         id: version
         shell: bash
