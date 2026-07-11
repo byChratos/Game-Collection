@@ -103,9 +103,6 @@ jobs:
           # via FUSE; GitHub-hosted runners can't reliably do that even with
           # libfuse2 installed, so force the non-FUSE extract-and-run fallback.
           APPIMAGE_EXTRACT_AND_RUN: '1'
-          # Surface the real linuxdeploy/bundler stderr instead of just the
-          # summarized "failed to run linuxdeploy" error.
-          RUST_LOG: debug
           # linuxdeploy scans the bundled JRE (jpackage output, embedded as the
           # "backend-runtime" resource) for shared library dependencies, but
           # doesn't honor the JRE binaries' own $ORIGIN-relative rpath, so it
@@ -118,4 +115,4 @@ jobs:
           releaseBody: 'See the assets to download this version and install.'
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.args }} --verbose
+          args: ${{ matrix.args }}
