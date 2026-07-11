@@ -56,6 +56,10 @@ jobs:
           # which is itself an AppImage and needs FUSE to run. Not installed by
           # default on GitHub-hosted ubuntu-22.04 runners.
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2
+          # GitHub-hosted ubuntu runners enforce AppArmor's unprivileged user
+          # namespace restriction, which blocks linuxdeploy/linuxdeploy-plugin-appimage
+          # (themselves AppImages) from running, even with FUSE and extract-and-run.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       - name: setup node
         uses: actions/setup-node@v4
