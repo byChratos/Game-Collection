@@ -106,6 +106,12 @@ jobs:
           # Surface the real linuxdeploy/bundler stderr instead of just the
           # summarized "failed to run linuxdeploy" error.
           RUST_LOG: debug
+          # linuxdeploy scans the bundled JRE (jpackage output, embedded as the
+          # "backend-runtime" resource) for shared library dependencies, but
+          # doesn't honor the JRE binaries' own $ORIGIN-relative rpath, so it
+          # can't find lib/runtime/lib/server/libjvm.so on its own. Point it
+          # there via LD_LIBRARY_PATH.
+          LD_LIBRARY_PATH: ${{ github.workspace }}/backend/build/jpackage/Game Collection Backend/lib/runtime/lib/server:${{ github.workspace }}/backend/build/jpackage/Game Collection Backend/lib/runtime/lib
         with:
           tagName: game-collection-v${{ steps.version.outputs.version }}
           releaseName: 'Game Collection v${{ steps.version.outputs.version }}'
