@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { platform } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { existsSync, readdirSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, readdirSync, rmSync } from "node:fs";
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const backendDir = join(rootDir, "backend");
@@ -92,3 +92,23 @@ run("jpackage", [
   "--add-modules",
   JLINK_MODULES,
 ]);
+
+// jpackage marks its output files read-only. Windows' CopyFile preserves that
+// attribute, so Tauri's build script (which copies this tree into
+// target/debug/backend-runtime as a bundle resource) creates a read-only copy
+// on the first build. Every subsequent build then fails with "Access is
+// denied (os error 5)" trying to overwrite those read-only files. Clear the
+// attribute here so the copy stays writable and future builds can overwrite it.
+function clearReadOnlyRecursive(path) {
+  chmodSync(path, 0o666);
+  const entries = readdirSync(path, { withFileTypes: true });
+  for (const entry of entries) {
+    const entryPath = join(path, entry.name);
+    if (entry.isDirectory()) {
+      clearReadOnlyRecursive(entryPath);
+    } else {
+      chmodSync(entryPath, 0o666);
+    }
+  }
+}
+clearReadOnlyRecursive(jpackageDestDir);
