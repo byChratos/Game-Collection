@@ -95,6 +95,89 @@ button {
   margin-right: 5px;
 }
 
+.connect-form,
+.room {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75em;
+  width: min(32em, 90vw);
+  margin: 0 auto 2em;
+  text-align: left;
+}
+
+.connect-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+  font-size: 0.9em;
+  font-weight: 500;
+}
+
+.room-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1em;
+}
+
+.room-header h2 {
+  margin: 0;
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+
+.error {
+  margin: 0;
+  color: crimson;
+}
+
+.warning {
+  margin: 0;
+  color: #b8860b;
+}
+
+.peer-list,
+.message-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+}
+
+.message-list {
+  max-height: 14em;
+  overflow-y: auto;
+}
+
+.peer-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em;
+}
+
+.badge {
+  font-size: 0.75em;
+  padding: 0.15em 0.6em;
+  border-radius: 999px;
+  background-color: rgba(127, 127, 127, 0.25);
+}
+
+.badge-ok {
+  background-color: rgba(46, 160, 67, 0.25);
+  color: #2ea043;
+}
+
+.message-self code {
+  opacity: 0.6;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     color: #f6f6f6;

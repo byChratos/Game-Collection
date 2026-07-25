@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/core";
+import { ConnectForm } from "./components/ConnectForm";
+import { RoomView } from "./components/RoomView";
+import { useWebRtcRoom } from "./webrtc/useWebRtcRoom";
 import "./App.css";
 
 const BACKEND_URL = "http://localhost:8721";
@@ -15,6 +18,7 @@ function App() {
   const [requestDurationMs, setRequestDurationMs] = useState<number | null>(null);
   const [isFetchingGames, setIsFetchingGames] = useState(false);
   const cancelledRef = useRef(false);
+  const room = useWebRtcRoom();
 
   async function greet() {
     // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -60,9 +64,29 @@ function App() {
     };
   }, [loadGames]);
 
+  if (room.status === "connected") {
+    return (
+      <main className="container">
+        <RoomView
+          roomId={room.roomId}
+          localPeerId={room.localPeerId}
+          peers={room.peers}
+          messages={room.messages}
+          error={room.error}
+          warning={room.warning}
+          onSend={room.sendMessage}
+          onLeave={room.disconnect}
+        />
+      </main>
+    );
+  }
+
   return (
     <main className="container">
       <h1>Welcome to Tauri + React</h1>
+
+      <h2>Mit anderen Spielern verbinden</h2>
+      <ConnectForm status={room.status} error={room.error} onConnect={room.connect} />
 
       <div className="row">
         <a href="https://vite.dev" target="_blank">
