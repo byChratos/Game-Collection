@@ -9,7 +9,10 @@ const backendDir = join(rootDir, "backend");
 const libsDir = join(backendDir, "build", "libs");
 const jpackageDestDir = join(backendDir, "build", "jpackage");
 const isWindows = platform() === "win32";
-const gradlew = isWindows ? "gradlew.bat" : "./gradlew";
+// Absolute path rather than a bare name: cmd.exe only searches the working directory
+// when NoDefaultCurrentDirectoryInExePath is unset, which is not the case in hardened
+// environments and some CI runners.
+const gradlew = join(backendDir, isWindows ? "gradlew.bat" : "gradlew");
 
 // Shown as the process name in Task Manager / Windows Firewall prompts, and
 // used as the app-image folder + launcher executable name (kept in sync with
@@ -50,10 +53,12 @@ function run(command, args) {
   // without quoting individual args, on both Windows and POSIX. So on Windows
   // we have to quote any arg containing whitespace ourselves, or it gets
   // word-split (e.g. jpackage's --name "Game Collection Backend").
-  const shellSafeArgs = isWindows
-    ? args.map((arg) => (/\s/.test(arg) ? `"${arg}"` : arg))
-    : args;
-  const result = spawnSync(command, shellSafeArgs, {
+  // The same applies to the command itself, which is an absolute path here and so
+  // contains a space whenever the checkout does (e.g. "C:\Git Projekte\...").
+  const quoteForShell = (value) => (/\s/.test(value) ? `"${value}"` : value);
+  const shellSafeArgs = isWindows ? args.map(quoteForShell) : args;
+  const shellSafeCommand = isWindows ? quoteForShell(command) : command;
+  const result = spawnSync(shellSafeCommand, shellSafeArgs, {
     cwd: backendDir,
     stdio: "inherit",
     shell: isWindows,
@@ -65,11 +70,22 @@ function run(command, args) {
 
 run(gradlew, ["bootJar"]);
 
-const jarName = readdirSync(libsDir).find((f) => f.endsWith(".jar"));
-if (!jarName) {
-  console.error(`No jar found in ${libsDir}`);
+// bootJar produces the runnable fat jar without a classifier. Gradle's `jar` task
+// additionally leaves a "-plain.jar" behind (and it survives until a clean), which has
+// no Main-Class — picking it makes jpackage silently skip the app image.
+const CLASSIFIER_SUFFIXES = ["-plain.jar", "-sources.jar", "-javadoc.jar"];
+const candidateJars = readdirSync(libsDir).filter(
+  (f) => f.endsWith(".jar") && !CLASSIFIER_SUFFIXES.some((suffix) => f.endsWith(suffix)),
+);
+if (candidateJars.length !== 1) {
+  console.error(
+    candidateJars.length === 0
+      ? `No runnable jar found in ${libsDir}`
+      : `Expected exactly one runnable jar in ${libsDir}, found: ${candidateJars.join(", ")}`,
+  );
   process.exit(1);
 }
+const jarName = candidateJars[0];
 
 // Bundle a minimal custom JRE + native launcher with jpackage, so end users
 // don't need Java installed.

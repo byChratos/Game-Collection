@@ -39,3 +39,9 @@ kotlin {
 tasks.withType<Test> {
 	useJUnitPlatform()
 }
+
+// Only the bootJar fat jar is consumed (by scripts/build-backend.mjs -> jpackage).
+// The plain jar has no Main-Class and would just sit in build/libs as a decoy.
+tasks.named<Jar>("jar") {
+	enabled = false
+}
