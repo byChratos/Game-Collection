@@ -19,7 +19,7 @@ services:
     container_name: webrtc-signaling
     restart: unless-stopped
     ports:
-      - "8721:8721"
+      - "8722:8721"
     environment:
       WEBRTC_ICESERVERS_0_URLS: stun:${TURN_HOST:-localhost}:3478
       WEBRTC_ICESERVERS_1_URLS: turn:${TURN_HOST:-localhost}:3478

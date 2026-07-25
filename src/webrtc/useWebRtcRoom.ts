@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  fetchIceServers,
-  generatePeerId,
-  parseServerAddress,
-  signalingUrl,
-  type SignalMessage,
-} from "./signaling";
+
+/**
+ * Thin control client for the local Kotlin sidecar.
+ *
+ * The WebRTC handshake itself no longer happens here — it runs in the sidecar
+ * (de.cfe.gamecollection.backend.webrtc.RoomSession). This hook only issues commands and
+ * mirrors the state the sidecar pushes back, so the peer connections survive independently
+ * of the WebView.
+ */
+
+const CONTROL_SOCKET_URL = "ws://localhost:8721/ws/room";
 
 export type RoomStatus = "idle" | "connecting" | "connected" | "error";
 
 export type PeerInfo = {
   peerId: string;
-  connectionState: RTCPeerConnectionState;
+  /** Lowercased RTCPeerConnectionState as reported by libwebrtc in the sidecar. */
+  connectionState: string;
   channelOpen: boolean;
 };
 
@@ -23,15 +28,23 @@ export type RoomMessage = {
   at: number;
 };
 
-type PeerEntry = {
-  pc: RTCPeerConnection;
-  channel: RTCDataChannel | null;
-  /** Candidates that arrived before setRemoteDescription and have to be replayed afterwards. */
-  pendingCandidates: RTCIceCandidateInit[];
-  remoteDescriptionSet: boolean;
-};
+/** Mirrors de.cfe.gamecollection.backend.webrtc.RoomCommand */
+type RoomCommand =
+  | { type: "JOIN"; server: string; roomId: string }
+  | { type: "LEAVE" }
+  | { type: "SEND"; text: string };
 
-const DATA_CHANNEL_LABEL = "game-collection";
+/** Mirrors de.cfe.gamecollection.backend.webrtc.RoomEvent */
+type RoomEvent = {
+  type: "STATUS" | "PEERS" | "MESSAGE";
+  status?: "IDLE" | "CONNECTING" | "CONNECTED" | "ERROR";
+  roomId?: string;
+  localPeerId?: string;
+  error?: string;
+  warning?: string;
+  peers?: PeerInfo[];
+  message?: RoomMessage;
+};
 
 export function useWebRtcRoom() {
   const [status, setStatus] = useState<RoomStatus>("idle");
@@ -43,197 +56,16 @@ export function useWebRtcRoom() {
   const [messages, setMessages] = useState<RoomMessage[]>([]);
 
   const socketRef = useRef<WebSocket | null>(null);
-  const peersRef = useRef(new Map<string, PeerEntry>());
-  const iceServersRef = useRef<RTCIceServer[]>([]);
-  const localPeerIdRef = useRef("");
-  const roomIdRef = useRef("");
   const leavingRef = useRef(false);
 
-  const syncPeers = useCallback(() => {
-    setPeers(
-      [...peersRef.current.entries()].map(([peerId, entry]) => ({
-        peerId,
-        connectionState: entry.pc.connectionState,
-        channelOpen: entry.channel?.readyState === "open",
-      })),
-    );
-  }, []);
-
-  const sendSignal = useCallback((message: SignalMessage) => {
+  const send = useCallback((command: RoomCommand) => {
     const socket = socketRef.current;
     if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify(message));
+      socket.send(JSON.stringify(command));
     }
   }, []);
-
-  const appendMessage = useCallback((senderId: string, text: string, fromSelf: boolean) => {
-    setMessages((prev) => [
-      ...prev,
-      { id: crypto.randomUUID(), senderId, text, fromSelf, at: Date.now() },
-    ]);
-  }, []);
-
-  const closePeer = useCallback(
-    (peerId: string) => {
-      const entry = peersRef.current.get(peerId);
-      if (!entry) return;
-      entry.channel?.close();
-      entry.pc.close();
-      peersRef.current.delete(peerId);
-      syncPeers();
-    },
-    [syncPeers],
-  );
-
-  const attachChannel = useCallback(
-    (peerId: string, channel: RTCDataChannel) => {
-      const entry = peersRef.current.get(peerId);
-      if (!entry) return;
-      entry.channel = channel;
-      channel.onopen = syncPeers;
-      channel.onclose = syncPeers;
-      channel.onmessage = (event) => appendMessage(peerId, String(event.data), false);
-      syncPeers();
-    },
-    [appendMessage, syncPeers],
-  );
-
-  const createPeer = useCallback(
-    (peerId: string, isInitiator: boolean): PeerEntry => {
-      const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
-      const entry: PeerEntry = {
-        pc,
-        channel: null,
-        pendingCandidates: [],
-        remoteDescriptionSet: false,
-      };
-      peersRef.current.set(peerId, entry);
-
-      pc.onicecandidate = (event) => {
-        if (!event.candidate) return;
-        sendSignal({
-          type: "ICE_CANDIDATE",
-          roomId: roomIdRef.current,
-          senderId: localPeerIdRef.current,
-          targetId: peerId,
-          candidate: event.candidate.candidate,
-          sdpMid: event.candidate.sdpMid,
-          sdpMLineIndex: event.candidate.sdpMLineIndex,
-        });
-      };
-
-      pc.onconnectionstatechange = () => {
-        if (pc.connectionState === "failed" || pc.connectionState === "closed") {
-          closePeer(peerId);
-        } else {
-          syncPeers();
-        }
-      };
-
-      // Only the initiator opens the channel; the answering side receives it via ondatachannel.
-      if (isInitiator) {
-        attachChannel(peerId, pc.createDataChannel(DATA_CHANNEL_LABEL));
-      } else {
-        pc.ondatachannel = (event) => attachChannel(peerId, event.channel);
-      }
-
-      syncPeers();
-      return entry;
-    },
-    [attachChannel, closePeer, sendSignal, syncPeers],
-  );
-
-  const flushCandidates = useCallback(async (entry: PeerEntry) => {
-    entry.remoteDescriptionSet = true;
-    const queued = entry.pendingCandidates.splice(0);
-    for (const candidate of queued) {
-      await entry.pc.addIceCandidate(candidate);
-    }
-  }, []);
-
-  const handleSignal = useCallback(
-    async (message: SignalMessage) => {
-      switch (message.type) {
-        case "JOIN":
-          // We are the newcomer. Peers already in the room will send us an offer, so we just wait.
-          break;
-
-        case "PEER_JOINED": {
-          if (peersRef.current.has(message.senderId)) break;
-          const entry = createPeer(message.senderId, true);
-          const offer = await entry.pc.createOffer();
-          await entry.pc.setLocalDescription(offer);
-          sendSignal({
-            type: "OFFER",
-            roomId: roomIdRef.current,
-            senderId: localPeerIdRef.current,
-            targetId: message.senderId,
-            sdp: offer.sdp,
-          });
-          break;
-        }
-
-        case "OFFER": {
-          if (!message.sdp) break;
-          const entry =
-            peersRef.current.get(message.senderId) ?? createPeer(message.senderId, false);
-          await entry.pc.setRemoteDescription({ type: "offer", sdp: message.sdp });
-          await flushCandidates(entry);
-          const answer = await entry.pc.createAnswer();
-          await entry.pc.setLocalDescription(answer);
-          sendSignal({
-            type: "ANSWER",
-            roomId: roomIdRef.current,
-            senderId: localPeerIdRef.current,
-            targetId: message.senderId,
-            sdp: answer.sdp,
-          });
-          break;
-        }
-
-        case "ANSWER": {
-          const entry = peersRef.current.get(message.senderId);
-          if (!entry || !message.sdp) break;
-          await entry.pc.setRemoteDescription({ type: "answer", sdp: message.sdp });
-          await flushCandidates(entry);
-          break;
-        }
-
-        case "ICE_CANDIDATE": {
-          const entry = peersRef.current.get(message.senderId);
-          if (!entry || !message.candidate) break;
-          const candidate: RTCIceCandidateInit = {
-            candidate: message.candidate,
-            sdpMid: message.sdpMid ?? undefined,
-            sdpMLineIndex: message.sdpMLineIndex ?? undefined,
-          };
-          if (entry.remoteDescriptionSet) {
-            await entry.pc.addIceCandidate(candidate);
-          } else {
-            entry.pendingCandidates.push(candidate);
-          }
-          break;
-        }
-
-        case "PEER_LEFT":
-          closePeer(message.senderId);
-          break;
-
-        case "LEAVE":
-          break;
-      }
-    },
-    [closePeer, createPeer, flushCandidates, sendSignal],
-  );
 
   const teardown = useCallback(() => {
-    peersRef.current.forEach((entry) => {
-      entry.channel?.close();
-      entry.pc.close();
-    });
-    peersRef.current.clear();
-    setPeers([]);
-
     const socket = socketRef.current;
     socketRef.current = null;
     if (socket) {
@@ -244,93 +76,86 @@ export function useWebRtcRoom() {
     }
   }, []);
 
+  const handleEvent = useCallback((event: RoomEvent) => {
+    switch (event.type) {
+      case "STATUS":
+        if (event.status) setStatus(event.status.toLowerCase() as RoomStatus);
+        if (event.roomId) setRoomId(event.roomId);
+        if (event.localPeerId) setLocalPeerId(event.localPeerId);
+        // Errors and warnings are sticky until the next connect() clears them: a failed
+        // handshake with one peer must not disappear just because the room is still fine.
+        if (event.error) setError(event.error);
+        if (event.warning) setWarning(event.warning);
+        break;
+
+      case "PEERS":
+        setPeers(event.peers ?? []);
+        break;
+
+      case "MESSAGE":
+        if (event.message) {
+          const message = event.message;
+          setMessages((prev) => [...prev, message]);
+        }
+        break;
+    }
+  }, []);
+
   const connect = useCallback(
-    async (address: string, identifier: string) => {
-      const trimmedRoom = identifier.trim();
-      if (!trimmedRoom) {
-        setError("Bitte einen Identifier für die Session angeben.");
-        setStatus("error");
-        return;
-      }
-
-      let bases: { httpBase: string; wsBase: string };
-      try {
-        bases = parseServerAddress(address);
-      } catch (err) {
-        setError((err as Error).message);
-        setStatus("error");
-        return;
-      }
-
+    (address: string, identifier: string) => {
       teardown();
       leavingRef.current = false;
       setError("");
       setWarning("");
       setMessages([]);
+      setPeers([]);
       setStatus("connecting");
 
-      try {
-        iceServersRef.current = await fetchIceServers(bases.httpBase);
-      } catch {
-        // Without STUN/TURN only host candidates are gathered, which still covers a shared LAN.
-        iceServersRef.current = [];
-        setWarning(
-          "ICE-Server konnten nicht geladen werden – Verbindungen funktionieren nur im lokalen Netz.",
-        );
-      }
-
-      const peerId = generatePeerId();
-      localPeerIdRef.current = peerId;
-      roomIdRef.current = trimmedRoom;
-      setLocalPeerId(peerId);
-      setRoomId(trimmedRoom);
-
-      const socket = new WebSocket(signalingUrl(bases.wsBase, trimmedRoom, peerId));
+      const socket = new WebSocket(CONTROL_SOCKET_URL);
       socketRef.current = socket;
 
-      socket.onopen = () => setStatus("connected");
+      // Address validation and the ICE lookup happen in the sidecar, so the raw input is
+      // simply forwarded.
+      socket.onopen = () =>
+        socket.send(JSON.stringify({ type: "JOIN", server: address, roomId: identifier }));
+
       socket.onmessage = (event) => {
-        void handleSignal(JSON.parse(String(event.data)) as SignalMessage).catch((err) =>
-          setError(`Signaling-Fehler: ${(err as Error).message}`),
-        );
+        try {
+          handleEvent(JSON.parse(String(event.data)) as RoomEvent);
+        } catch {
+          setError("Unlesbare Antwort vom lokalen Backend.");
+        }
       };
+
       socket.onclose = () => {
         if (leavingRef.current) return;
         teardown();
-        setError(`Verbindung zum Signaling-Server ${bases.wsBase} wurde getrennt.`);
+        setPeers([]);
+        setError(`Lokales Backend unter ${CONTROL_SOCKET_URL} nicht erreichbar.`);
         setStatus("error");
       };
     },
-    [handleSignal, teardown],
+    [handleEvent, teardown],
   );
 
   const disconnect = useCallback(() => {
     leavingRef.current = true;
-    sendSignal({
-      type: "LEAVE",
-      roomId: roomIdRef.current,
-      senderId: localPeerIdRef.current,
-    });
+    send({ type: "LEAVE" });
     teardown();
+    setPeers([]);
     setStatus("idle");
     setError("");
     setWarning("");
-  }, [sendSignal, teardown]);
+  }, [send, teardown]);
 
   const sendMessage = useCallback(
     (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
-      let delivered = 0;
-      peersRef.current.forEach((entry) => {
-        if (entry.channel?.readyState === "open") {
-          entry.channel.send(trimmed);
-          delivered += 1;
-        }
-      });
-      if (delivered > 0) appendMessage(localPeerIdRef.current, trimmed, true);
+      // The sidecar echoes the message back as fromSelf once it reached at least one peer.
+      send({ type: "SEND", text: trimmed });
     },
-    [appendMessage],
+    [send],
   );
 
   useEffect(() => teardown, [teardown]);
