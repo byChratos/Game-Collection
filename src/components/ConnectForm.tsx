@@ -9,9 +9,13 @@ type Props = {
   onConnect: (address: string, identifier: string) => void;
 };
 
+function addPort(address: string, port: string): string {
+  return `${address}:${port}`;
+}
+
 export function ConnectForm({ status, error, onConnect }: Props) {
   const [address, setAddress] = useState("localhost:8721");
-  const [identifier, setIdentifier] = useState("");
+  const [roomId, setRoomId] = useState("");
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -19,7 +23,7 @@ export function ConnectForm({ status, error, onConnect }: Props) {
     try {
       const parsed = JSON.parse(stored) as { address?: string; identifier?: string };
       if (parsed.address) setAddress(parsed.address);
-      if (parsed.identifier) setIdentifier(parsed.identifier);
+      if (parsed.identifier) setRoomId(parsed.identifier);
     } catch {
       localStorage.removeItem(STORAGE_KEY);
     }
@@ -32,8 +36,8 @@ export function ConnectForm({ status, error, onConnect }: Props) {
       className="connect-form"
       onSubmit={(event) => {
         event.preventDefault();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ address, identifier }));
-        onConnect(address, identifier);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ address, roomId }));
+        onConnect(addPort(address, "8721"), roomId);
       }}
     >
       <label>
@@ -41,17 +45,17 @@ export function ConnectForm({ status, error, onConnect }: Props) {
         <input
           value={address}
           onChange={(event) => setAddress(event.currentTarget.value)}
-          placeholder="z. B. 192.168.1.5:8721"
+          placeholder="z. B. cooler-test.duckdns.org"
           autoComplete="off"
           spellCheck={false}
         />
       </label>
 
       <label>
-        Identifier
+        Room ID
         <input
-          value={identifier}
-          onChange={(event) => setIdentifier(event.currentTarget.value)}
+          value={roomId}
+          onChange={(event) => setRoomId(event.currentTarget.value)}
           placeholder="z. B. abendrunde"
           autoComplete="off"
           spellCheck={false}
@@ -61,11 +65,6 @@ export function ConnectForm({ status, error, onConnect }: Props) {
       <button type="submit" disabled={isConnecting}>
         {isConnecting ? "Verbinde…" : "Session beitreten"}
       </button>
-
-      <p className="hint">
-        Alle, die denselben Identifier auf demselben Server eingeben, werden per WebRTC direkt
-        miteinander verbunden.
-      </p>
 
       {error && <p className="error">{error}</p>}
     </form>

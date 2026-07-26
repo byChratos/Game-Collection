@@ -17,12 +17,9 @@ class WebSocketConfig(
     private val appOrigins = arrayOf("http://localhost:1420", "tauri://localhost", "https://tauri.localhost")
 
     override fun registerWebSocketHandlers(registry: WebSocketHandlerRegistry) {
-        // Signaling relay, reached by *other* machines' sidecars. The allow-list only constrains
-        // browsers: sidecar clients send no Origin header at all, and Spring lets those through.
         registry.addHandler(peerConnectionController, "/ws/signaling")
             .setAllowedOrigins(*appOrigins)
 
-        // Local control channel: only ever the WebView on this machine.
         registry.addHandler(roomController, "/ws/room")
             .setAllowedOrigins(*appOrigins)
     }

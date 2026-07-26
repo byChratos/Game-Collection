@@ -2,11 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
  * Thin control client for the local Kotlin sidecar.
- *
- * The WebRTC handshake itself no longer happens here — it runs in the sidecar
- * (de.cfe.gamecollection.backend.webrtc.RoomSession). This hook only issues commands and
- * mirrors the state the sidecar pushes back, so the peer connections survive independently
- * of the WebView.
+ * WebRTC is implemented in Kotlin, this is a connectivity layer to communicate with Kotlin
  */
 
 const CONTROL_SOCKET_URL = "ws://localhost:8721/ws/room";
@@ -15,7 +11,6 @@ export type RoomStatus = "idle" | "connecting" | "connected" | "error";
 
 export type PeerInfo = {
   peerId: string;
-  /** Lowercased RTCPeerConnectionState as reported by libwebrtc in the sidecar. */
   connectionState: string;
   channelOpen: boolean;
 };
@@ -82,8 +77,6 @@ export function useWebRtcRoom() {
         if (event.status) setStatus(event.status.toLowerCase() as RoomStatus);
         if (event.roomId) setRoomId(event.roomId);
         if (event.localPeerId) setLocalPeerId(event.localPeerId);
-        // Errors and warnings are sticky until the next connect() clears them: a failed
-        // handshake with one peer must not disappear just because the room is still fine.
         if (event.error) setError(event.error);
         if (event.warning) setWarning(event.warning);
         break;
@@ -114,8 +107,6 @@ export function useWebRtcRoom() {
       const socket = new WebSocket(CONTROL_SOCKET_URL);
       socketRef.current = socket;
 
-      // Address validation and the ICE lookup happen in the sidecar, so the raw input is
-      // simply forwarded.
       socket.onopen = () =>
         socket.send(JSON.stringify({ type: "JOIN", server: address, roomId: identifier }));
 
@@ -123,7 +114,7 @@ export function useWebRtcRoom() {
         try {
           handleEvent(JSON.parse(String(event.data)) as RoomEvent);
         } catch {
-          setError("Unlesbare Antwort vom lokalen Backend.");
+          setError("Unreadable response from backend");
         }
       };
 
@@ -131,7 +122,7 @@ export function useWebRtcRoom() {
         if (leavingRef.current) return;
         teardown();
         setPeers([]);
-        setError(`Lokales Backend unter ${CONTROL_SOCKET_URL} nicht erreichbar.`);
+        setError(`Local backend not reachable at ${CONTROL_SOCKET_URL}`);
         setStatus("error");
       };
     },

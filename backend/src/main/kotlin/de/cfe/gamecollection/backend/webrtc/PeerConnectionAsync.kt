@@ -8,12 +8,6 @@ import dev.onvoid.webrtc.RTCSessionDescription
 import dev.onvoid.webrtc.SetSessionDescriptionObserver
 import java.util.concurrent.CompletableFuture
 
-/**
- * webrtc-java exposes the SDP calls through observer callbacks. These adapters turn them into
- * CompletableFutures so the handshake can be chained without blocking the signaling thread —
- * the browser's promise-based API did the same thing for free.
- */
-
 fun RTCPeerConnection.createOfferAsync(): CompletableFuture<RTCSessionDescription> =
     describeAsync { observer -> createOffer(RTCOfferOptions(), observer) }
 

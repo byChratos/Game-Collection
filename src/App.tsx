@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
 import { ConnectForm } from "./components/ConnectForm";
 import { RoomView } from "./components/RoomView";
 import { useWebRtcRoom } from "./webrtc/useWebRtcRoom";
@@ -11,19 +9,12 @@ const BACKEND_URL = "http://localhost:8721";
 type Game = { id: number; title: string };
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
   const [games, setGames] = useState<Game[]>([]);
   const [backendError, setBackendError] = useState("");
   const [requestDurationMs, setRequestDurationMs] = useState<number | null>(null);
   const [isFetchingGames, setIsFetchingGames] = useState(false);
   const cancelledRef = useRef(false);
   const room = useWebRtcRoom();
-
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
 
   const loadGames = useCallback(async (retriesLeft: number) => {
     setIsFetchingGames(true);
@@ -87,35 +78,6 @@ function App() {
 
       <h2>Mit anderen Spielern verbinden</h2>
       <ConnectForm status={room.status} error={room.error} onConnect={room.connect} />
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
 
       <h2>Games (from Kotlin Spring Boot backend)</h2>
       <button onClick={() => loadGames(0)} disabled={isFetchingGames}>
