@@ -1,26 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import { checkForAppUpdates } from "./libraries/Update";
+import { ConnectForm } from "./components/ConnectForm";
+import { RoomView } from "./components/RoomView";
+import { useWebRtcRoom } from "./webrtc/useWebRtcRoom";
 import "./App.css";
 
-const BACKEND_URL = "http://127.0.0.1:8721";
+const BACKEND_URL = "http://localhost:8721";
 
 type Game = { id: number; title: string };
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
   const [games, setGames] = useState<Game[]>([]);
   const [backendError, setBackendError] = useState("");
   const [requestDurationMs, setRequestDurationMs] = useState<number | null>(null);
   const [isFetchingGames, setIsFetchingGames] = useState(false);
   const cancelledRef = useRef(false);
-
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+  const room = useWebRtcRoom();
 
   const loadGames = useCallback(async (retriesLeft: number) => {
     setIsFetchingGames(true);
@@ -61,48 +55,34 @@ function App() {
     };
   }, [loadGames]);
 
-  useEffect(() => {
-    checkForAppUpdates(false);
-  }, []);
+  if (room.status === "connected") {
+    return (
+      <main className="container">
+        <RoomView
+          roomId={room.roomId}
+          localPeerId={room.localPeerId}
+          peers={room.peers}
+          messages={room.messages}
+          error={room.error}
+          warning={room.warning}
+          onSend={room.sendMessage}
+          onLeave={room.disconnect}
+        />
+      </main>
+    );
+  }
 
   return (
     <main className="container">
-      <h1>Welcome to Tauri + React and in Version 0.3.0</h1>
+      <h1>Game Collection</h1>
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
+      <h2>Mit anderen Spielern verbinden</h2>
+      <ConnectForm status={room.status} error={room.error} onConnect={room.connect} />
 
       <h2>Games (from Kotlin Spring Boot backend)</h2>
       <button onClick={() => loadGames(0)} disabled={isFetchingGames}>
         {isFetchingGames ? "Lädt…" : "Request erneut senden"}
       </button>
-      <button onClick={() => checkForAppUpdates(true)}>Check for Update</button>
       {requestDurationMs !== null && (
         <p style={{ fontSize: "0.85em", opacity: 0.7 }}>
           Request-Dauer: {requestDurationMs.toFixed(1)} ms
