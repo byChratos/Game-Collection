@@ -126,6 +126,9 @@ class RoomMembership internal constructor(
         synchronized(lock) { session }?.sendText(text)
     }
 
+    /** For backend-side controllers (e.g. a ChessController) to send/receive their own message kinds. */
+    fun messageHandler(): P2PMessageHandler? = synchronized(lock) { session }?.messageHandler
+
     /** Called when the owning control connection goes away; the membership is not reusable after. */
     fun close() {
         closed = true

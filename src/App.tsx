@@ -74,7 +74,7 @@ function App() {
 
   return (
     <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+      <h1>Game Collection</h1>
 
       <h2>Mit anderen Spielern verbinden</h2>
       <ConnectForm status={room.status} error={room.error} onConnect={room.connect} />

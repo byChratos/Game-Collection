@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Message } from "./Message";
+import { MessageType } from "./MessageType";
+import { P2PMessageHandler } from "./P2PMessageHandler";
 
 /**
  * Thin control client for the local Kotlin sidecar.
@@ -15,19 +18,20 @@ export type PeerInfo = {
   channelOpen: boolean;
 };
 
-export type RoomMessage = {
+/** Mirrors de.cfe.gamecollection.backend.webrtc.RoomCommand */
+type RoomCommand =
+  | { type: "JOIN"; server: string; roomId: string }
+  | { type: "LEAVE" }
+  | { type: "SEND"; text: string };
+
+/** Mirrors de.cfe.gamecollection.backend.webrtc.RoomChatMessage */
+type RoomChatMessage = {
   id: string;
   senderId: string;
   text: string;
   fromSelf: boolean;
   at: number;
 };
-
-/** Mirrors de.cfe.gamecollection.backend.webrtc.RoomCommand */
-type RoomCommand =
-  | { type: "JOIN"; server: string; roomId: string }
-  | { type: "LEAVE" }
-  | { type: "SEND"; text: string };
 
 /** Mirrors de.cfe.gamecollection.backend.webrtc.RoomEvent */
 type RoomEvent = {
@@ -38,7 +42,7 @@ type RoomEvent = {
   error?: string;
   warning?: string;
   peers?: PeerInfo[];
-  message?: RoomMessage;
+  message?: RoomChatMessage;
 };
 
 export function useWebRtcRoom() {
@@ -48,7 +52,7 @@ export function useWebRtcRoom() {
   const [roomId, setRoomId] = useState("");
   const [localPeerId, setLocalPeerId] = useState("");
   const [peers, setPeers] = useState<PeerInfo[]>([]);
-  const [messages, setMessages] = useState<RoomMessage[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
 
   const socketRef = useRef<WebSocket | null>(null);
   const leavingRef = useRef(false);
@@ -59,6 +63,12 @@ export function useWebRtcRoom() {
       socket.send(JSON.stringify(command));
     }
   }, []);
+
+  /** Stable for the hook's lifetime — other controllers (e.g. a ChessController) can hold onto it. */
+  const messageHandlerRef = useRef<P2PMessageHandler | null>(null);
+  if (!messageHandlerRef.current) {
+    messageHandlerRef.current = new P2PMessageHandler((raw) => send({ type: "SEND", text: raw }));
+  }
 
   const teardown = useCallback(() => {
     const socket = socketRef.current;
@@ -87,11 +97,19 @@ export function useWebRtcRoom() {
 
       case "MESSAGE":
         if (event.message) {
-          const message = event.message;
-          setMessages((prev) => [...prev, message]);
+          const { id, senderId, text, fromSelf, at } = event.message;
+          messageHandlerRef.current!.receive(text, senderId, id, fromSelf, at);
         }
         break;
     }
+  }, []);
+
+  // CHAT feeds the message list the room UI renders; other types (e.g. a ChessController's
+  // MessageType.CHESS) are consumed by subscribing to messageHandler directly.
+  useEffect(() => {
+    return messageHandlerRef.current!.on(MessageType.CHAT, (message) => {
+      setMessages((prev) => [...prev, message]);
+    });
   }, []);
 
   const connect = useCallback(
@@ -139,15 +157,12 @@ export function useWebRtcRoom() {
     setWarning("");
   }, [send, teardown]);
 
-  const sendMessage = useCallback(
-    (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed) return;
-      // The sidecar echoes the message back as fromSelf once it reached at least one peer.
-      send({ type: "SEND", text: trimmed });
-    },
-    [send],
-  );
+  const sendMessage = useCallback((text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    // The sidecar echoes the message back as fromSelf once it reached at least one peer.
+    messageHandlerRef.current!.send(MessageType.CHAT, trimmed);
+  }, []);
 
   useEffect(() => teardown, [teardown]);
 
@@ -162,5 +177,7 @@ export function useWebRtcRoom() {
     connect,
     disconnect,
     sendMessage,
+    /** For other game controllers (e.g. a ChessController) to send/receive their own message kinds. */
+    messageHandler: messageHandlerRef.current,
   };
 }

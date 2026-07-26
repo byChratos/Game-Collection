@@ -1,11 +1,12 @@
 import { useState } from "react";
-import type { PeerInfo, RoomMessage } from "../webrtc/useWebRtcRoom";
+import type { Message } from "../webrtc/Message";
+import type { PeerInfo } from "../webrtc/useWebRtcRoom";
 
 type Props = {
   roomId: string;
   localPeerId: string;
   peers: PeerInfo[];
-  messages: RoomMessage[];
+  messages: Message[];
   error: string;
   warning: string;
   onSend: (text: string) => void;
@@ -66,7 +67,7 @@ export function RoomView({
       <ul className="message-list">
         {messages.map((message) => (
           <li key={message.id} className={message.fromSelf ? "message message-self" : "message"}>
-            <code>{message.fromSelf ? "du" : message.senderId}</code> {message.text}
+            <code>{message.fromSelf ? "du" : message.senderId}</code> {message.content}
           </li>
         ))}
       </ul>

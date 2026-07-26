@@ -1,6 +1,8 @@
 package de.cfe.gamecollection.backend.webrtc
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import de.cfe.gamecollection.backend.model.SignalMessage
+import de.cfe.gamecollection.backend.model.SignalType
 import dev.onvoid.webrtc.PeerConnectionFactory
 import dev.onvoid.webrtc.RTCConfiguration
 import dev.onvoid.webrtc.RTCIceCandidate
@@ -44,6 +46,9 @@ class RoomSession(
         Thread(runnable, "webrtc-room-$localPeerId").apply { isDaemon = true }
     }
 
+    /** Decodes/dispatches every P2P message by kind; mirrors useWebRtcRoom.ts's messageHandler. */
+    val messageHandler = P2PMessageHandler(objectMapper) { raw -> broadcast(raw) }
+
     private val sendLock = Any()
 
     @Volatile
@@ -75,7 +80,7 @@ class RoomSession(
                 return
             }
 
-        when (incoming.type) {
+        when (incoming.signalType) {
             // We are the newcomer. Peers already in the room will send us an offer, so we just wait.
             SignalType.JOIN -> Unit
             SignalType.PEER_JOINED -> worker.execute { offerTo(incoming.senderId) }
@@ -167,7 +172,7 @@ class RoomSession(
                 )
             },
             onStateChanged = { onPeerStateChanged(peerId) },
-            onText = { text -> emitMessage(peerId, text, fromSelf = false) },
+            onText = { text -> receiveText(peerId, text, fromSelf = false) },
         )
         peer.connection = factory.createPeerConnection(config, peer)
         peers[peerId] = peer
@@ -191,17 +196,20 @@ class RoomSession(
 
     // --- outbound -------------------------------------------------------------------------
 
+    /** text is already an encoded P2PMessage envelope, produced by the frontend's own handler. */
     fun sendText(text: String) {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
-        val delivered = peers.values.count { runCatching { it.send(trimmed) }.getOrDefault(false) }
-        if (delivered > 0) emitMessage(localPeerId, trimmed, fromSelf = true)
+        if (broadcast(trimmed)) receiveText(localPeerId, trimmed, fromSelf = true)
     }
+
+    private fun broadcast(raw: String): Boolean =
+        peers.values.count { runCatching { it.send(raw) }.getOrDefault(false) } > 0
 
     fun close(notifyServer: Boolean) {
         leaving = true
         if (notifyServer) {
-            runCatching { sendSignal(SignalMessage(type = SignalType.LEAVE, roomId = roomId, senderId = localPeerId)) }
+            runCatching { sendSignal(SignalMessage(signalType = SignalType.LEAVE, roomId = roomId, senderId = localPeerId)) }
         }
         peers.values.forEach { runCatching { it.close() } }
         peers.clear()
@@ -219,7 +227,7 @@ class RoomSession(
         sdpMid: String? = null,
         sdpMLineIndex: Int? = null,
     ) = SignalMessage(
-        type = type,
+        signalType = type,
         roomId = roomId,
         senderId = localPeerId,
         targetId = targetId,
@@ -241,16 +249,24 @@ class RoomSession(
         emit(RoomEvent(type = RoomEventType.PEERS, peers = peers.values.map { it.info() }))
     }
 
-    private fun emitMessage(senderId: String, text: String, fromSelf: Boolean) {
+    /** Decodes+dispatches the envelope by kind, then mirrors it to the frontend as a chat event. */
+    private fun receiveText(senderId: String, raw: String, fromSelf: Boolean) {
+        val message = messageHandler.receive(
+            raw,
+            senderId,
+            UUID.randomUUID().toString(),
+            fromSelf,
+            System.currentTimeMillis(),
+        )
         emit(
             RoomEvent(
                 type = RoomEventType.MESSAGE,
                 message = RoomChatMessage(
-                    id = UUID.randomUUID().toString(),
-                    senderId = senderId,
-                    text = text,
-                    fromSelf = fromSelf,
-                    at = System.currentTimeMillis(),
+                    id = message.id,
+                    senderId = message.senderId,
+                    text = raw,
+                    fromSelf = message.fromSelf,
+                    at = message.at,
                 ),
             ),
         )

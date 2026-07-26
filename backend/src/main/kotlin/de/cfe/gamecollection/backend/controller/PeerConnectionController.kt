@@ -1,8 +1,8 @@
 package de.cfe.gamecollection.backend.controller
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import de.cfe.gamecollection.backend.webrtc.SignalMessage
-import de.cfe.gamecollection.backend.webrtc.SignalType
+import de.cfe.gamecollection.backend.model.SignalMessage
+import de.cfe.gamecollection.backend.model.SignalType
 import org.springframework.stereotype.Component
 import org.springframework.web.socket.CloseStatus
 import org.springframework.web.socket.TextMessage
@@ -32,8 +32,8 @@ class PeerConnectionController(
             val existingPeerIds = room.keys.toList()
             room[peerId] = session
 
-            send(session, SignalMessage(type = SignalType.JOIN, roomId = roomId, senderId = peerId, peers = existingPeerIds))
-            broadcast(room, exclude = peerId, message = SignalMessage(type = SignalType.PEER_JOINED, roomId = roomId, senderId = peerId))
+            send(session, SignalMessage(signalType = SignalType.JOIN, roomId = roomId, senderId = peerId, peers = existingPeerIds))
+            broadcast(room, exclude = peerId, message = SignalMessage(signalType = SignalType.PEER_JOINED, roomId = roomId, senderId = peerId))
         }
     }
 
@@ -41,7 +41,7 @@ class PeerConnectionController(
         val incoming = objectMapper.readValue(message.payload, SignalMessage::class.java)
         val room = rooms[incoming.roomId] ?: return
 
-        when (incoming.type) {
+        when (incoming.signalType) {
             SignalType.OFFER, SignalType.ANSWER, SignalType.ICE_CANDIDATE -> {
                 val targetId = incoming.targetId ?: return
                 room[targetId]?.let { send(it, incoming) }
@@ -62,7 +62,7 @@ class PeerConnectionController(
         if (room.isEmpty()) {
             rooms.remove(roomId)
         } else {
-            broadcast(room, exclude = peerId, message = SignalMessage(type = SignalType.PEER_LEFT, roomId = roomId, senderId = peerId))
+            broadcast(room, exclude = peerId, message = SignalMessage(signalType = SignalType.PEER_LEFT, roomId = roomId, senderId = peerId))
         }
     }
 

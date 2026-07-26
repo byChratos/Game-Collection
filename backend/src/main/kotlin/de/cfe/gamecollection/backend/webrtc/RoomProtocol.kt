@@ -5,8 +5,9 @@ import com.fasterxml.jackson.annotation.JsonInclude
 /**
  * Control protocol between the WebView and its own local sidecar over /ws/room.
  *
- * This is deliberately *not* the signaling protocol (see [SignalMessage]): the frontend no
- * longer takes part in the WebRTC handshake at all, it only issues commands and renders state.
+ * This is deliberately *not* the signaling protocol (see [de.cfe.gamecollection.backend.model.SignalMessage]):
+ * the frontend no longer takes part in the WebRTC handshake at all, it only issues commands and
+ * renders state.
  */
 data class RoomCommand(
     val type: RoomCommandType,
